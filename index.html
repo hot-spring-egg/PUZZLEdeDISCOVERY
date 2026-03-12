@@ -41,9 +41,9 @@
     // urlの部分を、使いたい画像のURLに書き換えてください。
     const PRESET_IMAGES = [
       { id: 'img1', title: 'やさいたち', url: 'https://thumb.photo-ac.com/8e/8e7fcbecb2faa80ec2498e76cf84f540_t.jpeg' },
-      { id: 'img2', title: 'ひまわり', url: 'https://images.unsplash.com/photo-1595856453982-f5424df39c14?auto=format&fit=crop&w=800&q=80' },
-      { id: 'img3', title: 'いぬ', url: 'https://images.unsplash.com/photo-1543466835-00a733a5a11c?auto=format&fit=crop&w=800&q=80' },
-      { id: 'img4', title: 'てんとうむし', url: 'https://images.unsplash.com/photo-1533228876829-65c94e7b5025?auto=format&fit=crop&w=800&q=80' }
+      { id: 'img2', title: '天の川', url: 'https://img01.jalannews.jp/img/2021/06/20210609_amanogawa_002-670x443.jpg' },
+      { id: 'img3', title: 関ヶ原の戦い', url: 'https://www.nippon.com/ja/ncommon/contents/japan-topics/2486628/2486628.jpg' },
+      { id: 'img4', title: 'スイミー', url: 'https://gigaplus.makeshop.jp/kyuryudo/artwork/leo-sw01-1.jpg' }
     ];
 
     // ジグソーパズルのパスを生成する関数
@@ -187,7 +187,8 @@
       // 画像の読み込みとピースの初期配置
       useEffect(() => {
         const img = new Image();
-        img.crossOrigin = "Anonymous"; // 外部URLの画像を読み込むための設定
+        // ★修正点：外部サイトの画像がブロックされないようにCORSチェックを外しました
+        // img.crossOrigin = "Anonymous"; 
         img.onload = () => {
           setImageRatio(img.width / img.height);
           
