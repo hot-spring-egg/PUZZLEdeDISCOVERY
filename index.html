@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>パズルdeディスカバリー</title>
+  <!-- 必要なライブラリの読み込み -->
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- 丸みのある優しいフォントを読み込み -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@400;700&display=swap" rel="stylesheet">
+  
+  <style>
+    body {
+      font-family: 'M PLUS Rounded 1c', sans-serif;
+      background-color: #F4F1DE; /* クリーム色の背景 */
+      margin: 0;
+      padding: 0;
+      /* スワイプ操作で前のページに戻るなどのデフォルト動作を防ぐ */
+      overscroll-behavior-y: none;
+    }
+    
+    /* パズルボード上でのスクロールを防ぐ（タッチ操作用） */
+    .touch-none {
+      touch-action: none;
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+
+    // ★先生へ：ここでパズルにしたい画像を登録します。
+    // urlの部分を、使いたい画像のURLに書き換えてください。
+    const PRESET_IMAGES = [
+      { id: 'img1', title: 'やさいたち', url: 'https://thumb.photo-ac.com/8e/8e7fcbecb2faa80ec2498e76cf84f540_t.jpeg' },
+      { id: 'img2', title: 'ひまわり', url: 'https://images.unsplash.com/photo-1595856453982-f5424df39c14?auto=format&fit=crop&w=800&q=80' },
+      { id: 'img3', title: 'いぬ', url: 'https://images.unsplash.com/photo-1543466835-00a733a5a11c?auto=format&fit=crop&w=800&q=80' },
+      { id: 'img4', title: 'てんとうむし', url: 'https://images.unsplash.com/photo-1533228876829-65c94e7b5025?auto=format&fit=crop&w=800&q=80' }
+    ];
+
+    // ジグソーパズルのパスを生成する関数
+    const createJigsawPath = (w, h, tabs) => {
+      const baseSize = Math.min(w, h);
+      const tx = baseSize * 0.18;
+      const ty = baseSize * 0.18;
+      
+      let path = `M 0,0 `;
+      
+      if (tabs.top === 0) {
+        path += `L ${w},0 `;
+      } else {
+        const s = tabs.top;
+        path += `L ${w/2 - tx},0 `;
+        path += `C ${w/2 - tx*0.2},${-s*ty*0.2} ${w/2 - tx*1.2},${-s*ty} ${w/2},${-s*ty} `;
+        path += `C ${w/2 + tx*1.2},${-s*ty} ${w/2 + tx*0.2},${-s*ty*0.2} ${w/2 + tx},0 `;
+        path += `L ${w},0 `;
+      }
+
+      if (tabs.right === 0) {
+        path += `L ${w},${h} `;
+      } else {
+        const s = tabs.right;
+        path += `L ${w},${h/2 - tx} `;
+        path += `C ${w + s*ty*0.2},${h/2 - tx*0.2} ${w + s*ty},${h/2 - tx*1.2} ${w + s*ty},${h/2} `;
+        path += `C ${w + s*ty},${h/2 + tx*1.2} ${w + s*ty*0.2},${h/2 + tx*0.2} ${w},${h/2 + tx} `;
+        path += `L ${w},${h} `;
+      }
+
+      if (tabs.bottom === 0) {
+        path += `L 0,${h} `;
+      } else {
+        const s = tabs.bottom;
+        path += `L ${w/2 + tx},${h} `;
+        path += `C ${w/2 + tx*0.2},${h + s*ty*0.2} ${w/2 + tx*1.2},${h + s*ty} ${w/2},${h + s*ty} `;
+        path += `C ${w/2 - tx*1.2},${h + s*ty} ${w/2 - tx*0.2},${h + s*ty*0.2} ${w/2 - tx},${h} `;
+        path += `L 0,${h} `;
+      }
+
+      if (tabs.left === 0) {
+        path += `L 0,0 `;
+      } else {
+        const s = tabs.left;
+        path += `L 0,${h/2 + tx} `;
+        path += `C ${-s*ty*0.2},${h/2 + tx*0.2} ${-s*ty},${h/2 + tx*1.2} ${-s*ty},${h/2} `;
+        path += `C ${-s*ty},${h/2 - tx*1.2} ${-s*ty*0.2},${h/2 - tx*0.2} 0,${h/2 - tx} `;
+        path += `L 0,0 `;
+      }
+
+      path += `Z`;
+      return path;
+    };
+
+    // ==========================================
+    // 1. 初期設定画面（SetupScreen）
+    // ==========================================
+    const SetupScreen = ({ imageSrc, setImageSrc, grid, setGrid, onStart }) => {
+      // 難易度の選択肢
+      const difficulties = [
+        { label: 'かんたん (2×2)', rows: 2, cols: 2 },
+        { label: 'ふつう (3×3)', rows: 3, cols: 3 },
+        { label: 'むずかしい (4×4)', rows: 4, cols: 4 },
+        { label: 'ちょうせん (5×5)', rows: 5, cols: 5 },
+      ];
+
+      return (
+        <div className="w-full max-w-2xl bg-white/90 backdrop-blur p-6 md:p-10 rounded-[2rem] shadow-xl border-4 border-[#d1cdb3]">
+          <h1 className="text-3xl md:text-4xl font-bold text-[#3D405B] mb-8 text-center leading-relaxed">
+            パズルdeディスカバリー
+          </h1>
+
+          <div className="mb-8">
+            <h2 className="text-xl font-bold text-[#3D405B] mb-4">1. しゃしんを えらぶ</h2>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {PRESET_IMAGES.map((img) => (
+                <button
+                  key={img.id}
+                  onClick={() => setImageSrc(img.url)}
+                  className={`p-2 rounded-xl border-4 transition-all active:scale-95 flex flex-col items-center gap-2 ${
+                    imageSrc === img.url 
+                      ? 'border-[#E0A96D] bg-[#E0A96D]/20 shadow-md transform -translate-y-1' 
+                      : 'border-[#d1cdb3] bg-white hover:bg-[#F4F1DE]'
+                  }`}
+                >
+                  <img src={img.url} alt={img.title} className="w-full h-20 md:h-24 object-cover rounded-lg shadow-sm" />
+                  <span className="font-bold text-[#3D405B] text-sm">{img.title}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="mb-10">
+            <h2 className="text-xl font-bold text-[#3D405B] mb-4">2. むずかしさを えらぶ</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {difficulties.map((d, i) => (
+                <button
+                  key={i}
+                  onClick={() => setGrid({ rows: d.rows, cols: d.cols })}
+                  className={`p-4 rounded-xl font-bold text-lg border-4 transition-transform active:scale-95 ${
+                    grid.rows === d.rows 
+                      ? 'border-[#E0A96D] bg-[#E0A96D] text-white shadow-md' 
+                      : 'border-[#d1cdb3] bg-white text-[#3D405B] hover:bg-[#F4F1DE]'
+                  }`}
+                >
+                  {d.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <button
+            onClick={onStart}
+            disabled={!imageSrc}
+            className={`w-full py-5 rounded-2xl text-2xl font-bold transition-all ${
+              imageSrc 
+                ? 'bg-[#81B29A] text-white shadow-[0_6px_0_#5a8570] hover:-translate-y-1 hover:shadow-[0_8px_0_#5a8570] active:translate-y-2 active:shadow-none cursor-pointer' 
+                : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+            }`}
+          >
+            ゲームスタート！
+          </button>
+        </div>
+      );
+    }
+
+    // ==========================================
+    // 2. パズルプレイ画面（PuzzleBoard）
+    // ==========================================
+    const PuzzleBoard = ({ imageSrc, grid, onClear, onBack }) => {
+      const boardRef = useRef(null);
+      const [pieces, setPieces] = useState([]);
+      const [draggingId, setDraggingId] = useState(null);
+      const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+      const [imageRatio, setImageRatio] = useState(1);
+      const [isClearing, setIsClearing] = useState(false);
+      const [error, setError] = useState('');
+
+      const { rows, cols } = grid;
+
+      // 画像の読み込みとピースの初期配置
+      useEffect(() => {
+        const img = new Image();
+        img.crossOrigin = "Anonymous"; // 外部URLの画像を読み込むための設定
+        img.onload = () => {
+          setImageRatio(img.width / img.height);
+          
+          const iw = img.width;
+          const ih = img.height;
+          const bw = iw / cols;
+          const bh = ih / rows;
+          
+          const baseSize = Math.min(bw, bh);
+          const margin = baseSize * 0.3; // タブがはみ出す分の余白
+          
+          // 境界の凸凹を決定 (1: 凸, -1: 凹)
+          const hEdges = []; 
+          for (let r = 0; r < rows - 1; r++) {
+            let row = [];
+            for (let c = 0; c < cols; c++) {
+              row.push(Math.random() > 0.5 ? 1 : -1);
+            }
+            hEdges.push(row);
+          }
+          const vEdges = [];
+          for (let r = 0; r < rows; r++) {
+            let row = [];
+            for (let c = 0; c < cols - 1; c++) {
+              row.push(Math.random() > 0.5 ? 1 : -1);
+            }
+            vEdges.push(row);
+          }
+          
+          const initialPieces = [];
+          for (let r = 0; r < rows; r++) {
+            for (let c = 0; c < cols; c++) {
+              const tabs = {
+                top: r === 0 ? 0 : -hEdges[r - 1][c],
+                bottom: r === rows - 1 ? 0 : hEdges[r][c],
+                left: c === 0 ? 0 : -vEdges[r][c - 1],
+                right: c === cols - 1 ? 0 : vEdges[r][c]
+              };
+              
+              const pctW = (bw + margin * 2) / iw * 100;
+              const pctH = (bh + margin * 2) / ih * 100;
+              const baseX = (c * bw - margin) / iw * 100;
+              const baseY = (r * bh - margin) / ih * 100;
+
+              initialPieces.push({
+                id: `${r}-${c}`,
+                row: r,
+                col: c,
+                tabs,
+                pctW,
+                pctH,
+                baseX,
+                baseY,
+                x: Math.random() * (100 - pctW),
+                y: Math.random() * (100 - Math.max(pctH, 10)),
+                isPlaced: false,
+                zIndex: 10,
+                svgViewBox: `${-margin} ${-margin} ${bw + margin * 2} ${bh + margin * 2}`,
+                imageWidth: iw,
+                imageHeight: ih,
+                imgX: -c * bw,
+                imgY: -r * bh,
+                pathD: createJigsawPath(bw, bh, tabs)
+              });
+            }
+          }
+          
+          // 配列をシャッフル（描画順もランダムにするため）
+          for(let i = initialPieces.length - 1; i > 0; i--){
+            const j = Math.floor(Math.random() * (i + 1));
+            [initialPieces[i], initialPieces[j]] = [initialPieces[j], initialPieces[i]];
+          }
+          
+          setPieces(initialPieces);
+        };
+        img.onerror = () => {
+          setError('がぞうが よみこめませんでした。');
+        };
+        img.src = imageSrc;
+      }, [imageSrc, rows, cols]);
+
+      // クリア判定
+      useEffect(() => {
+        if (pieces.length > 0 && pieces.every(p => p.isPlaced) && !isClearing) {
+          setIsClearing(true);
+          // 少し待ってからクリア画面へ移行
+          setTimeout(() => {
+            onClear();
+          }, 1500); 
+        }
+      }, [pieces, isClearing, onClear]);
+
+      // ピースを掴んだとき（マウス・タッチ両対応）
+      const handlePointerDown = (e, piece) => {
+        if (piece.isPlaced || isClearing) return;
+        
+        // ボード内の相対座標(%)を計算
+        const rect = boardRef.current.getBoundingClientRect();
+        const pointerX = ((e.clientX - rect.left) / rect.width) * 100;
+        const pointerY = ((e.clientY - rect.top) / rect.height) * 100;
+        
+        setDragOffset({
+          x: pointerX - piece.x,
+          y: pointerY - piece.y
+        });
+        setDraggingId(piece.id);
+        
+        // 掴んだピースを最前面にする
+        setPieces(prev => {
+          const maxZ = Math.max(...prev.map(p => p.zIndex), 0);
+          return prev.map(p => p.id === piece.id ? { ...p, zIndex: maxZ + 1 } : p);
+        });
+
+        // 画面外に指が出ても追従させる
+        e.target.setPointerCapture(e.pointerId);
+      };
+
+      // ピースを動かしているとき
+      const handlePointerMove = (e) => {
+        if (!draggingId || !boardRef.current || isClearing) return;
+        
+        const rect = boardRef.current.getBoundingClientRect();
+        const pointerX = ((e.clientX - rect.left) / rect.width) * 100;
+        const pointerY = ((e.clientY - rect.top) / rect.height) * 100;
+        
+        let newX = pointerX - dragOffset.x;
+        let newY = pointerY - dragOffset.y;
+        
+        setPieces(prev => prev.map(p => p.id === draggingId ? { ...p, x: newX, y: newY } : p));
+      };
+
+      // ピースを離したとき（吸着判定）
+      const handlePointerUp = (e) => {
+        if (!draggingId) return;
+        e.target.releasePointerCapture(e.pointerId);
+        
+        setPieces(prev => prev.map(p => {
+          if (p.id !== draggingId) return p;
+          
+          // 正解の座標(%)
+          const targetX = p.baseX;
+          const targetY = p.baseY;
+          
+          // ピタッと吸い付く距離
+          const dist = Math.sqrt(Math.pow(p.x - targetX, 2) + Math.pow(p.y - targetY, 2));
+          const snapThreshold = (100 / Math.max(cols, rows)) * 0.4;
+          
+          if (dist < snapThreshold) {
+            // 正解位置に置かれたら、zIndexを0にして一番下のレイヤーに下げる
+            return { ...p, x: targetX, y: targetY, isPlaced: true, zIndex: 0 };
+          }
+          return p;
+        }));
+        
+        setDraggingId(null);
+      };
+
+      if (error) {
+        return (
+          <div className="flex flex-col items-center">
+            <div className="bg-[#E07A5F]/20 text-[#E07A5F] font-bold p-4 rounded-xl mb-6">{error}</div>
+            <button onClick={onBack} className="bg-white px-6 py-3 rounded-xl shadow-md text-[#3D405B] font-bold">もどる</button>
+          </div>
+        );
+      }
+
+      const placedCount = pieces.filter(p => p.isPlaced).length;
+
+      return (
+        <div className="w-full max-w-5xl flex flex-col items-center">
+          {/* ヘッダー部分 */}
+          <div className="w-full flex justify-between items-center mb-4 px-2">
+            <button 
+              onClick={onBack}
+              className="bg-white text-[#3D405B] px-5 py-3 rounded-xl font-bold shadow border-2 border-[#d1cdb3] hover:bg-[#E0A96D] hover:text-white hover:border-[#E0A96D] transition-colors"
+            >
+              ◀ やめる
+            </button>
+            <div className="text-xl md:text-2xl font-bold text-[#3D405B] bg-white/60 px-4 py-2 rounded-xl">
+              できたピース：<span className="text-[#E0A96D]">{placedCount}</span> / {pieces.length}
+            </div>
+          </div>
+
+          {/* パズルエリア */}
+          <div className="relative w-full px-2 flex justify-center">
+            <div 
+              ref={boardRef}
+              className="relative bg-white/50 border-4 border-[#3D405B] rounded-md touch-none overflow-hidden shadow-2xl"
+              style={{ 
+                // 縦長画像が画面を突き抜けないためのハック
+                aspectRatio: imageRatio,
+                maxHeight: '75vh',
+                width: '100%',
+                maxWidth: `calc(75vh * ${imageRatio})`
+              }}
+            >
+              {/* 下絵（薄く表示してヒントにする） */}
+              <div 
+                className="absolute inset-0 bg-cover bg-center opacity-20 pointer-events-none"
+                style={{ backgroundImage: `url(${imageSrc})` }}
+              ></div>
+
+              {/* ピースの描画 */}
+              {pieces.map(piece => (
+                <div
+                  key={piece.id}
+                  onPointerDown={(e) => handlePointerDown(e, piece)}
+                  onPointerMove={handlePointerMove}
+                  onPointerUp={handlePointerUp}
+                  onPointerCancel={handlePointerUp}
+                  className={`absolute ${piece.isPlaced ? '' : 'cursor-grab active:cursor-grabbing hover:brightness-110'}`}
+                  style={{
+                    width: `${piece.pctW}%`,
+                    height: `${piece.pctH}%`,
+                    left: `${piece.x}%`,
+                    top: `${piece.y}%`,
+                    zIndex: piece.zIndex,
+                    // ドラッグ中はアニメーションを切る（マウスに即追従させるため）
+                    transition: draggingId === piece.id ? 'none' : 'left 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), top 0.2s cubic-bezier(0.34, 1.56, 0.64, 1)',
+                    filter: piece.isPlaced ? 'none' : 'drop-shadow(2px 4px 6px rgba(0,0,0,0.4))'
+                  }}
+                >
+                  <svg viewBox={piece.svgViewBox} className="w-full h-full pointer-events-none">
+                    <defs>
+                      <clipPath id={`clip-${piece.id}`}>
+                        <path d={piece.pathD} />
+                      </clipPath>
+                    </defs>
+                    <image 
+                      href={imageSrc}
+                      x={piece.imgX} 
+                      y={piece.imgY} 
+                      width={piece.imageWidth} 
+                      height={piece.imageHeight} 
+                      clipPath={`url(#clip-${piece.id})`}
+                      preserveAspectRatio="none"
+                    />
+                    <path 
+                      d={piece.pathD} 
+                      fill="none" 
+                      stroke={isClearing ? "transparent" : "rgba(0,0,0,0.8)"} 
+                      strokeWidth={isClearing ? 0 : 2} 
+                      style={{ transition: 'stroke 1s ease, stroke-width 1s ease' }}
+                    />
+                  </svg>
+                </div>
+              ))}
+
+              {/* クリア時のキラキラ演出 */}
+              {isClearing && (
+                <div className="absolute inset-0 flex items-center justify-center bg-white/40 backdrop-blur-sm z-50 animate-pulse transition-opacity duration-500">
+                  <span className="text-5xl md:text-7xl font-bold text-[#E0A96D] drop-shadow-[0_4px_4px_rgba(255,255,255,0.8)]">
+                    よくできました！
+                  </span>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ==========================================
+    // 3. クリア画面（ClearScreen）
+    // ==========================================
+    const ClearScreen = ({ imageSrc, onRetry, onReset }) => {
+      return (
+        <div className="w-full max-w-3xl flex flex-col items-center bg-white/90 backdrop-blur p-8 rounded-[2rem] shadow-xl border-4 border-[#d1cdb3] text-center">
+          <h2 className="text-4xl md:text-5xl font-bold text-[#E0A96D] mb-4 animate-bounce">
+            ✨ かんせい！ ✨
+          </h2>
+          <p className="text-xl md:text-2xl text-[#3D405B] font-bold mb-8">
+            はっけん！ よく かんさつ できましたね！
+          </p>
+          
+          <div className="relative w-full max-h-[40vh] flex justify-center mb-10">
+            <img 
+              src={imageSrc} 
+              className="max-w-full max-h-[40vh] object-contain rounded-xl shadow-[0_10px_30px_rgba(0,0,0,0.2)] border-8 border-white" 
+              alt="かんせいがぞう" 
+            />
+          </div>
+
+          <div className="flex flex-col sm:flex-row gap-4 w-full justify-center">
+            <button 
+              onClick={onRetry}
+              className="px-6 py-4 bg-[#81B29A] text-white rounded-2xl font-bold text-xl shadow-[0_5px_0_#5a8570] hover:-translate-y-1 hover:shadow-[0_7px_0_#5a8570] active:translate-y-1 active:shadow-none transition-all"
+            >
+              もういちど<br/><span className="text-sm">（おなじしゃしん）</span>
+            </button>
+            <button 
+              onClick={onReset}
+              className="px-6 py-4 bg-white text-[#E0A96D] border-4 border-[#E0A96D] rounded-2xl font-bold text-xl shadow-[0_5px_0_#c99358] hover:-translate-y-1 hover:shadow-[0_7px_0_#c99358] active:translate-y-1 active:shadow-none transition-all"
+            >
+              ちがうしゃしんで<br/><span className="text-sm">あそぶ</span>
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    // ==========================================
+    // メインコンポーネント（App）
+    // ==========================================
+    const App = () => {
+      // 画面の切り替え状態 ('setup', 'playing', 'clear')
+      const [gameState, setGameState] = useState('setup'); 
+      const [imageSrc, setImageSrc] = useState(null);
+      const [grid, setGrid] = useState({ rows: 3, cols: 3 });
+
+      return (
+        <div className="min-h-screen py-8 px-4 md:px-8 flex flex-col items-center">
+          {gameState === 'setup' && (
+            <SetupScreen 
+              imageSrc={imageSrc} 
+              setImageSrc={setImageSrc} 
+              grid={grid} 
+              setGrid={setGrid} 
+              onStart={() => setGameState('playing')} 
+            />
+          )}
+          {gameState === 'playing' && (
+            <PuzzleBoard 
+              imageSrc={imageSrc} 
+              grid={grid} 
+              onClear={() => setGameState('clear')} 
+              onBack={() => setGameState('setup')} 
+            />
+          )}
+          {gameState === 'clear' && (
+            <ClearScreen 
+              imageSrc={imageSrc} 
+              onRetry={() => setGameState('setup')} 
+              onReset={() => {
+                setImageSrc(null);
+                setGameState('setup');
+              }} 
+            />
+          )}
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
