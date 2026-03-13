@@ -56,9 +56,7 @@
       { id: 'img1', title: 'やさいたち', url: 'https://thumb.photo-ac.com/8e/8e7fcbecb2faa80ec2498e76cf84f540_t.jpeg' },
       { id: 'img2', title: '天の川', url: 'https://img01.jalannews.jp/img/2021/06/20210609_amanogawa_002-670x443.jpg' },
       { id: 'img3', title: '関ヶ原の戦い', url: 'https://www.nippon.com/ja/ncommon/contents/japan-topics/2486628/2486628.jpg' },
-      { id: 'img4', title: 'スイミー', url: 'https://gigaplus.makeshop.jp/kyuryudo/artwork/leo-sw01-1.jpg' },
-      { id: 'img5', title: '春のおとずれ', url: 'https://myhome-style.com/column/parts/detail/images/250123430767_01.jpg' },
-      { id: 'img6', title: 'くだものたち', url: 'https://kinarino.k-img.com/system/press_images/001/711/477/b7b0ddbf7bf010c6c1a823abe03ee0cbd92e8931.jpg?1609738560' }
+      { id: 'img4', title: 'スイミー', url: 'https://gigaplus.makeshop.jp/kyuryudo/artwork/leo-sw01-1.jpg' }
     ];
 
     // ジグソーパズルのパスを生成する関数
@@ -265,19 +263,19 @@
             const vvh = window.innerHeight;
             const imgRatio = iw / ih;
 
-            // 枠の表示サイズを推定 (CSSの設定: width: 45%, maxHeight: 40vh)
-            let boardW = vvw * 0.45;
+            // 枠の表示サイズを推定 (width: 60%, maxHeight: 55vh に拡大)
+            let boardW = vvw * 0.60;
             let boardH = boardW / imgRatio;
-            if (boardH > vvh * 0.40) {
-              boardH = vvh * 0.40;
+            if (boardH > vvh * 0.55) {
+              boardH = vvh * 0.55;
               boardW = boardH * imgRatio;
             }
 
             // 画面全体の利用可能領域（ヘッダー等を除いたピクセル数）
-            const safeTop = 100; // ヘッダー分
-            const safeBottom = 40; // 下部余白
-            const safeLeft = 20; // 左余白
-            const safeRight = 20; // 右余白
+            const safeTop = 90; // ヘッダー分
+            const safeBottom = 30; // 下部余白
+            const safeLeft = 10; // 左余白
+            const safeRight = 10; // 右余白
 
             const availableW = vvw - safeLeft - safeRight;
             const availableH = vvh - safeTop - safeBottom;
@@ -497,6 +495,25 @@
             // 正解位置に置かれたら、zIndexを0にして一番下のレイヤーに下げる
             return { ...p, x: targetX, y: targetY, isPlaced: true, zIndex: 0 };
           }
+
+          // ★「枠の中だけ」モードの時は、はみ出したピースを枠内に戻して消えないようにする
+          if (!allowOutside) {
+            let newX = p.x;
+            let newY = p.y;
+            // ピースが完全に見えなくなるのを防ぐため、少しのはみ出し(-10%程度)までは許容しつつ枠内に収める
+            const minX = -10;
+            const maxX = 110 - p.pctW;
+            const minY = -10;
+            const maxY = 110 - p.pctH;
+            
+            if (newX < minX) newX = minX;
+            if (newX > maxX) newX = maxX;
+            if (newY < minY) newY = minY;
+            if (newY > maxY) newY = maxY;
+            
+            return { ...p, x: newX, y: newY };
+          }
+
           return p;
         }));
         
@@ -534,13 +551,14 @@
           <div className="relative w-full flex-1 flex justify-center items-center mb-4 md:mb-8">
             <div 
               ref={boardRef}
-              className={`relative bg-white/50 border-4 border-[#3D405B] rounded-md touch-none shadow-2xl ${allowOutside ? 'overflow-visible' : 'overflow-hidden'}`}
+              // ★ overflow-visible を常に適用し、枠外に出てもピースが消えないようにする
+              className={`relative bg-white/50 border-4 border-[#3D405B] rounded-md touch-none shadow-2xl overflow-visible`}
               style={{ 
                 aspectRatio: imageRatio,
-                // ★枠外モードのときは枠を小さくして中央に配置。周囲の余白にピースを並べる。
-                maxHeight: allowOutside ? '40vh' : '75vh', 
-                width: allowOutside ? '45%' : '100%',     
-                maxWidth: allowOutside ? `calc(40vh * ${imageRatio})` : `calc(75vh * ${imageRatio})`
+                // ★台紙のサイズを拡大。枠外モードは55vh・幅60%、枠内モードは限界の85vhまで大きくする。
+                maxHeight: allowOutside ? '55vh' : '85vh', 
+                width: allowOutside ? '60%' : '100%',     
+                maxWidth: allowOutside ? `calc(55vh * ${imageRatio})` : `calc(85vh * ${imageRatio})`
               }}
             >
               {/* 下絵（薄く表示してヒントにする） */}
