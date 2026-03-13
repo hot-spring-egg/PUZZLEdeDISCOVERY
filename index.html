@@ -245,6 +245,48 @@
             vEdges.push(row);
           }
           
+          // 枠外用のスロット生成（重ならないように配置するための座標リスト）
+          const slots = [];
+          if (allowOutside) {
+            const pw = 100 / cols;
+            const ph = 100 / rows;
+            // ピースの大きさに少し余白を持たせて配置間隔とする
+            const stepX = pw * 1.3; 
+            const stepY = ph * 1.3;
+
+            // 左エリア (-50% 〜 -stepX)
+            for (let x = -stepX; x >= -50; x -= stepX) {
+              for (let y = 0; y <= 100 - ph; y += stepY) {
+                slots.push({x, y});
+              }
+            }
+            // 右エリア (100% 〜 150%-pw)
+            for (let x = 100 + stepX * 0.1; x <= 150 - pw; x += stepX) {
+              for (let y = 0; y <= 100 - ph; y += stepY) {
+                slots.push({x, y});
+              }
+            }
+            // 下エリア (y: 100% 〜 300%)
+            for (let y = 100 + stepY * 0.1; y <= 300; y += stepY) {
+              for (let x = -50; x <= 150 - pw; x += stepX) {
+                slots.push({x, y});
+              }
+            }
+            
+            // スロット数がピース数に満たない場合のフェイルセーフ
+            if (slots.length < rows * cols) {
+               for (let i = 0; i < (rows * cols - slots.length); i++) {
+                  slots.push({x: -40 + Math.random() * 180, y: 100 + Math.random() * 50});
+               }
+            }
+
+            // スロットをランダムにシャッフル
+            for(let i = slots.length - 1; i > 0; i--){
+              const j = Math.floor(Math.random() * (i + 1));
+              [slots[i], slots[j]] = [slots[j], slots[i]];
+            }
+          }
+
           const initialPieces = [];
           for (let r = 0; r < rows; r++) {
             for (let c = 0; c < cols; c++) {
@@ -261,10 +303,13 @@
               const baseY = (r * bh - margin) / ih * 100;
 
               let initialX, initialY;
-              if (allowOutside) {
-                // 枠外モード：ボードの下のスペースに散らばらせる（スクロールしなくて済む範囲）
-                initialX = -5 + Math.random() * (110 - pctW); // 横幅いっぱいに
-                initialY = 105 + Math.random() * 45; // ボードの下側 (105% ~ 150%)
+              if (allowOutside && slots.length > 0) {
+                // 事前計算したスロットから取り出し、自然に見えるよう少しだけ位置をずらす
+                const slot = slots.pop();
+                const jitterX = (Math.random() - 0.5) * (100 / cols * 0.2);
+                const jitterY = (Math.random() - 0.5) * (100 / rows * 0.2);
+                initialX = slot.x + jitterX;
+                initialY = slot.y + jitterY;
               } else {
                 // 枠内モード：ボードの内側に散らばらせる
                 initialX = Math.random() * (100 - pctW);
@@ -411,15 +456,15 @@
           </div>
 
           {/* パズルエリア */}
-          <div className="relative w-full px-2 flex justify-center" style={{ paddingBottom: allowOutside ? '30vh' : '0' }}>
+          <div className={`relative w-full px-2 flex justify-center ${allowOutside ? 'mt-4 md:mt-8' : ''}`} style={{ paddingBottom: allowOutside ? '50vh' : '0' }}>
             <div 
               ref={boardRef}
               className={`relative bg-white/50 border-4 border-[#3D405B] rounded-md touch-none shadow-2xl ${allowOutside ? 'overflow-visible' : 'overflow-hidden'}`}
               style={{ 
                 // 縦長画像が画面を突き抜けないためのハック
                 aspectRatio: imageRatio,
-                maxHeight: allowOutside ? '45vh' : '70vh', // 枠外モードのときは枠を少し小さくして画面内に収める
-                width: '100%',
+                maxHeight: allowOutside ? '45vh' : '70vh', // 枠外モードのときは枠を少し小さくする
+                width: allowOutside ? '50%' : '100%',     // 左右に作業スペースを作るために枠を狭める
                 maxWidth: allowOutside ? `calc(45vh * ${imageRatio})` : `calc(70vh * ${imageRatio})`
               }}
             >
