@@ -262,9 +262,9 @@
 
               let initialX, initialY;
               if (allowOutside) {
-                // 枠外モード：ボードの下のスペースに散らばらせる
+                // 枠外モード：ボードの下のスペースに散らばらせる（スクロールしなくて済む範囲）
                 initialX = -5 + Math.random() * (110 - pctW); // 横幅いっぱいに
-                initialY = 105 + Math.random() * 50; // ボードの下側 (105% ~ 155%)
+                initialY = 105 + Math.random() * 45; // ボードの下側 (105% ~ 150%)
               } else {
                 // 枠内モード：ボードの内側に散らばらせる
                 initialX = Math.random() * (100 - pctW);
@@ -411,16 +411,16 @@
           </div>
 
           {/* パズルエリア */}
-          <div className="relative w-full px-2 flex justify-center" style={{ paddingBottom: allowOutside ? '50vh' : '0' }}>
+          <div className="relative w-full px-2 flex justify-center" style={{ paddingBottom: allowOutside ? '30vh' : '0' }}>
             <div 
               ref={boardRef}
               className={`relative bg-white/50 border-4 border-[#3D405B] rounded-md touch-none shadow-2xl ${allowOutside ? 'overflow-visible' : 'overflow-hidden'}`}
               style={{ 
                 // 縦長画像が画面を突き抜けないためのハック
                 aspectRatio: imageRatio,
-                maxHeight: '70vh', // 枠の大きさを常に大きく保つ
+                maxHeight: allowOutside ? '45vh' : '70vh', // 枠外モードのときは枠を少し小さくして画面内に収める
                 width: '100%',
-                maxWidth: `calc(70vh * ${imageRatio})`
+                maxWidth: allowOutside ? `calc(45vh * ${imageRatio})` : `calc(70vh * ${imageRatio})`
               }}
             >
               {/* 下絵（薄く表示してヒントにする） */}
