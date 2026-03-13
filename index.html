@@ -9,6 +9,8 @@
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   <script src="https://cdn.tailwindcss.com"></script>
+  <!-- ★紙吹雪アニメーション用のライブラリを追加 -->
+  <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
   
   <!-- 丸みのある優しいフォントを読み込み -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -23,12 +25,22 @@
       padding: 0;
       /* スワイプ操作で前のページに戻るなどのデフォルト動作を防ぐ */
       overscroll-behavior-y: none;
-      overflow-x: hidden; /* 横スクロールを防ぐ */
     }
     
     /* パズルボード上でのスクロールを防ぐ（タッチ操作用） */
     .touch-none {
       touch-action: none;
+    }
+
+    /* ★文字が飛び出すアニメーション */
+    @keyframes popOut {
+      0% { transform: scale(0.1) rotate(-10deg); opacity: 0; }
+      60% { transform: scale(1.2) rotate(5deg); opacity: 1; }
+      80% { transform: scale(0.9) rotate(-2deg); }
+      100% { transform: scale(1) rotate(0deg); opacity: 1; }
+    }
+    .animate-pop-out {
+      animation: popOut 0.8s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
     }
   </style>
 </head>
@@ -202,6 +214,7 @@
     // ==========================================
     const PuzzleBoard = ({ imageSrc, grid, allowOutside, onClear, onBack }) => {
       const boardRef = useRef(null);
+      const startTimeRef = useRef(null); // ★スタート時間を記録するタイマー
       const [pieces, setPieces] = useState([]);
       const [draggingId, setDraggingId] = useState(null);
       const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
@@ -214,8 +227,6 @@
       // 画像の読み込みとピースの初期配置
       useEffect(() => {
         const img = new Image();
-        // ★修正点：外部サイトの画像がブロックされないようにCORSチェックを外しました
-        // img.crossOrigin = "Anonymous"; 
         img.onload = () => {
           setImageRatio(img.width / img.height);
           
@@ -245,38 +256,63 @@
             vEdges.push(row);
           }
           
-          // 枠外用のスロット生成（重ならないように配置するための座標リスト）
+          // ★枠外用のスロット生成（画面全体のサイズから逆算し、絶対にスクロールしない範囲を割り出す）
           const slots = [];
           if (allowOutside) {
+            const vvw = window.innerWidth;
+            const vvh = window.innerHeight;
+            const imgRatio = iw / ih;
+
+            // 枠の表示サイズを推定 (CSSの設定: width: 45%, maxHeight: 40vh)
+            let boardW = vvw * 0.45;
+            let boardH = boardW / imgRatio;
+            if (boardH > vvh * 0.40) {
+              boardH = vvh * 0.40;
+              boardW = boardH * imgRatio;
+            }
+
+            // 画面全体の利用可能領域（ヘッダー等を除いたピクセル数）
+            const safeTop = 100; // ヘッダー分
+            const safeBottom = 40; // 下部余白
+            const safeLeft = 20; // 左余白
+            const safeRight = 20; // 右余白
+
+            const availableW = vvw - safeLeft - safeRight;
+            const availableH = vvh - safeTop - safeBottom;
+
+            // 枠は中央に配置されると仮定
+            const boardLeft = safeLeft + (availableW - boardW) / 2;
+            const boardTop = safeTop + (availableH - boardH) / 2;
+
             const pw = 100 / cols;
             const ph = 100 / rows;
-            // ピースの大きさに少し余白を持たせて配置間隔とする
-            const stepX = pw * 1.3; 
-            const stepY = ph * 1.3;
+            
+            // 画面の安全領域を、パズル枠に対するパーセント座標に変換
+            const minX_pct = ((safeLeft - boardLeft) / boardW) * 100;
+            const maxX_pct = ((safeLeft + availableW - boardW * (1/cols) - boardLeft) / boardW) * 100;
+            const minY_pct = ((safeTop - boardTop) / boardH) * 100;
+            const maxY_pct = ((safeTop + availableH - boardH * (1/rows) - boardTop) / boardH) * 100;
 
-            // 左エリア (-50% 〜 -stepX)
-            for (let x = -stepX; x >= -50; x -= stepX) {
-              for (let y = 0; y <= 100 - ph; y += stepY) {
-                slots.push({x, y});
-              }
-            }
-            // 右エリア (100% 〜 150%-pw)
-            for (let x = 100 + stepX * 0.1; x <= 150 - pw; x += stepX) {
-              for (let y = 0; y <= 100 - ph; y += stepY) {
-                slots.push({x, y});
-              }
-            }
-            // 下エリア (y: 100% 〜 300%)
-            for (let y = 100 + stepY * 0.1; y <= 300; y += stepY) {
-              for (let x = -50; x <= 150 - pw; x += stepX) {
+            // スロットを生成（ピースを広げる間隔）
+            const stepX = pw * 1.1; 
+            const stepY = ph * 1.1;
+
+            for (let x = minX_pct; x <= maxX_pct; x += stepX) {
+              for (let y = minY_pct; y <= maxY_pct; y += stepY) {
+                // パズルの枠内（+少しの余白）はピースで隠さないように避ける
+                if (x > -pw * 0.5 && x < 100 && y > -ph * 0.5 && y < 100) {
+                  continue;
+                }
                 slots.push({x, y});
               }
             }
             
-            // スロット数がピース数に満たない場合のフェイルセーフ
+            // それでもスロット数がピース数に満たない場合のフェイルセーフ（少し密に詰める）
             if (slots.length < rows * cols) {
-               for (let i = 0; i < (rows * cols - slots.length); i++) {
-                  slots.push({x: -40 + Math.random() * 180, y: 100 + Math.random() * 50});
+               for (let x = minX_pct; x <= maxX_pct; x += stepX * 0.7) {
+                 for (let y = minY_pct; y <= maxY_pct; y += stepY * 0.7) {
+                   slots.push({x, y});
+                 }
                }
             }
 
@@ -306,8 +342,8 @@
               if (allowOutside && slots.length > 0) {
                 // 事前計算したスロットから取り出し、自然に見えるよう少しだけ位置をずらす
                 const slot = slots.pop();
-                const jitterX = (Math.random() - 0.5) * (100 / cols * 0.2);
-                const jitterY = (Math.random() - 0.5) * (100 / rows * 0.2);
+                const jitterX = (Math.random() - 0.5) * (100 / cols * 0.1);
+                const jitterY = (Math.random() - 0.5) * (100 / rows * 0.1);
                 initialX = slot.x + jitterX;
                 initialY = slot.y + jitterY;
               } else {
@@ -339,28 +375,64 @@
             }
           }
           
-          // 配列をシャッフル（描画順もランダムにするため）
+          // 描画順もランダムにするためシャッフル
           for(let i = initialPieces.length - 1; i > 0; i--){
             const j = Math.floor(Math.random() * (i + 1));
             [initialPieces[i], initialPieces[j]] = [initialPieces[j], initialPieces[i]];
           }
           
           setPieces(initialPieces);
+          startTimeRef.current = Date.now(); // ★ピースが配置された瞬間にタイマースタート
         };
         img.onerror = () => {
           setError('がぞうが よみこめませんでした。');
         };
         img.src = imageSrc;
-      }, [imageSrc, rows, cols]);
+      }, [imageSrc, rows, cols, allowOutside]); // allowOutsideも依存配列に追加
 
       // クリア判定
       useEffect(() => {
         if (pieces.length > 0 && pieces.every(p => p.isPlaced) && !isClearing) {
           setIsClearing(true);
+          
+          // ★紙吹雪を両端から打ち上げる（北欧カラー）
+          if (window.confetti) {
+            const duration = 2000;
+            const animationEnd = Date.now() + duration;
+            const colors = ['#E07A5F', '#81B29A', '#E0A96D', '#3D405B', '#ffffff'];
+
+            (function frame() {
+              confetti({
+                particleCount: 5,
+                angle: 60,
+                spread: 55,
+                origin: { x: 0, y: 0.8 },
+                colors: colors,
+                zIndex: 9999
+              });
+              confetti({
+                particleCount: 5,
+                angle: 120,
+                spread: 55,
+                origin: { x: 1, y: 0.8 },
+                colors: colors,
+                zIndex: 9999
+              });
+
+              if (Date.now() < animationEnd) {
+                requestAnimationFrame(frame);
+              }
+            }());
+          }
+
+          // ★かかった時間を計算（秒）
+          const endTime = Date.now();
+          const timeTaken = Math.floor((endTime - startTimeRef.current) / 1000);
+          
           // 少し待ってからクリア画面へ移行
           setTimeout(() => {
-            onClear();
-          }, 1500); 
+            onClear(timeTaken); // ★クリア時間をAppに渡す
+          }, 2500); // 演出を見るために少し待機時間を長く（1500 → 2500に変更）
         }
       }, [pieces, isClearing, onClear]);
 
@@ -431,7 +503,7 @@
 
       if (error) {
         return (
-          <div className="flex flex-col items-center">
+          <div className="flex flex-col items-center mt-10">
             <div className="bg-[#E07A5F]/20 text-[#E07A5F] font-bold p-4 rounded-xl mb-6">{error}</div>
             <button onClick={onBack} className="bg-white px-6 py-3 rounded-xl shadow-md text-[#3D405B] font-bold">もどる</button>
           </div>
@@ -440,10 +512,11 @@
 
       const placedCount = pieces.filter(p => p.isPlaced).length;
 
+      // ★ここがパズル画面の1画面固定表示のための構造
       return (
-        <div className="w-full max-w-5xl flex flex-col items-center">
+        <div className="w-full h-full flex flex-col items-center">
           {/* ヘッダー部分 */}
-          <div className="w-full flex justify-between items-center mb-4 px-2">
+          <div className="w-full flex justify-between items-center py-4 px-2 flex-shrink-0 z-10">
             <button 
               onClick={onBack}
               className="bg-white text-[#3D405B] px-5 py-3 rounded-xl font-bold shadow border-2 border-[#d1cdb3] hover:bg-[#E0A96D] hover:text-white hover:border-[#E0A96D] transition-colors"
@@ -456,16 +529,16 @@
           </div>
 
           {/* パズルエリア */}
-          <div className={`relative w-full px-2 flex justify-center ${allowOutside ? 'mt-4 md:mt-8' : ''}`} style={{ paddingBottom: allowOutside ? '50vh' : '0' }}>
+          <div className="relative w-full flex-1 flex justify-center items-center mb-4 md:mb-8">
             <div 
               ref={boardRef}
               className={`relative bg-white/50 border-4 border-[#3D405B] rounded-md touch-none shadow-2xl ${allowOutside ? 'overflow-visible' : 'overflow-hidden'}`}
               style={{ 
-                // 縦長画像が画面を突き抜けないためのハック
                 aspectRatio: imageRatio,
-                maxHeight: allowOutside ? '45vh' : '70vh', // 枠外モードのときは枠を少し小さくする
-                width: allowOutside ? '50%' : '100%',     // 左右に作業スペースを作るために枠を狭める
-                maxWidth: allowOutside ? `calc(45vh * ${imageRatio})` : `calc(70vh * ${imageRatio})`
+                // ★枠外モードのときは枠を小さくして中央に配置。周囲の余白にピースを並べる。
+                maxHeight: allowOutside ? '40vh' : '75vh', 
+                width: allowOutside ? '45%' : '100%',     
+                maxWidth: allowOutside ? `calc(40vh * ${imageRatio})` : `calc(75vh * ${imageRatio})`
               }}
             >
               {/* 下絵（薄く表示してヒントにする） */}
@@ -519,17 +592,23 @@
                   </svg>
                 </div>
               ))}
-
-              {/* クリア時のキラキラ演出 */}
-              {isClearing && (
-                <div className="absolute inset-0 flex items-center justify-center bg-white/40 backdrop-blur-sm z-50 animate-pulse transition-opacity duration-500">
-                  <span className="text-5xl md:text-7xl font-bold text-[#E0A96D] drop-shadow-[0_4px_4px_rgba(255,255,255,0.8)]">
-                    よくできました！
-                  </span>
-                </div>
-              )}
             </div>
           </div>
+
+          {/* ★クリア時のキラキラ演出（枠外の画面全体に飛び出る！） */}
+          {isClearing && (
+            <div className="fixed inset-0 flex items-center justify-center z-[100] pointer-events-none">
+              <div className="absolute inset-0 bg-white/40 backdrop-blur-sm transition-opacity duration-500"></div>
+              <span 
+                className="animate-pop-out text-5xl md:text-8xl font-black text-[#E0A96D] relative z-10" 
+                style={{ 
+                  textShadow: '0 10px 25px rgba(0,0,0,0.3), 0 0 15px rgba(255,255,255,0.8), -3px -3px 0 #fff, 3px -3px 0 #fff, -3px 3px 0 #fff, 3px 3px 0 #fff'
+                }}
+              >
+                よくできました！
+              </span>
+            </div>
+          )}
         </div>
       );
     }
@@ -537,12 +616,20 @@
     // ==========================================
     // 3. クリア画面（ClearScreen）
     // ==========================================
-    const ClearScreen = ({ imageSrc, onRetry, onReset }) => {
+    const ClearScreen = ({ imageSrc, timeTaken, onRetry, onReset }) => {
       return (
-        <div className="w-full max-w-3xl flex flex-col items-center bg-white/90 backdrop-blur p-8 rounded-[2rem] shadow-xl border-4 border-[#d1cdb3] text-center">
+        <div className="w-full max-w-3xl flex flex-col items-center bg-white/90 backdrop-blur p-8 rounded-[2rem] shadow-xl border-4 border-[#d1cdb3] text-center my-auto">
           <h2 className="text-4xl md:text-5xl font-bold text-[#E0A96D] mb-4 animate-bounce">
             ✨ かんせい！ ✨
           </h2>
+          
+          {/* ★クリアタイムの表示 */}
+          <div className="bg-[#F4F1DE] px-6 py-3 rounded-xl mb-6 shadow-inner border-2 border-[#E0A96D]/30">
+            <p className="text-2xl md:text-3xl text-[#3D405B] font-bold">
+              きろく： <span className="text-[#E07A5F] text-4xl">{timeTaken}</span> びょう
+            </p>
+          </div>
+
           <p className="text-xl md:text-2xl text-[#3D405B] font-bold mb-8">
             はっけん！ よく かんさつ できましたね！
           </p>
@@ -582,9 +669,11 @@
       const [imageSrc, setImageSrc] = useState(null);
       const [grid, setGrid] = useState({ rows: 3, cols: 3 });
       const [allowOutside, setAllowOutside] = useState(false);
+      const [clearTime, setClearTime] = useState(0); // ★クリアタイムを保存する状態
 
       return (
-        <div className="min-h-screen py-8 px-4 md:px-8 flex flex-col items-center">
+        // ★プレイ中(playing)の時は画面の高さを100dvhに固定し、スクロールを無効化する
+        <div className={`w-full ${gameState === 'playing' ? 'h-[100dvh] overflow-hidden touch-none' : 'min-h-screen py-8 overflow-auto'} px-4 md:px-8 flex flex-col items-center`}>
           {gameState === 'setup' && (
             <SetupScreen 
               imageSrc={imageSrc} 
@@ -601,13 +690,17 @@
               imageSrc={imageSrc} 
               grid={grid} 
               allowOutside={allowOutside}
-              onClear={() => setGameState('clear')} 
+              onClear={(time) => {
+                setClearTime(time); // ★かかった時間を保存
+                setGameState('clear');
+              }} 
               onBack={() => setGameState('setup')} 
             />
           )}
           {gameState === 'clear' && (
             <ClearScreen 
               imageSrc={imageSrc} 
+              timeTaken={clearTime} // ★クリア画面に時間を渡す
               onRetry={() => setGameState('setup')} 
               onReset={() => {
                 setImageSrc(null);
